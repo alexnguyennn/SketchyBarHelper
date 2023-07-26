@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"github.com/bitfield/script"
 	"os"
+	"strings"
 )
 
 /*
@@ -41,12 +43,58 @@ func GoHandler(
 		nameStr, senderStr, infoStr, configDirStr, buttonStr, modifierStr,
 	)
 
-	fmt.Printf("got vars name: %s, sender: %s, info: %s\n ", nameStr, senderStr, infoStr)
+	currentDisplay := ""
+	switch senderStr {
+	case "display_change":
+		currentDisplay = infoStr
+	default:
+	}
+
+	if currentDisplay == "" {
+		currentDisplay = nameStr[strings.LastIndex(nameStr, ".")+1:]
+	}
+	fmt.Printf("picked up currentDisplay value: %s\n", currentDisplay)
+
+	// Run the 'yabai' command and capture its output
+	yabaiPipeline := script.Exec(
+		fmt.Sprintf(
+			`yabai -m query --spaces --display "%s"`,
+			currentDisplay,
+		)).JQ(`.[] | select(."is-visible" == true) | .index`)
+
+	yabaiOutput, err := yabaiPipeline.String()
+	if err != nil {
+		fmt.Printf("ran yabai command 1 and ran into this error: %s\n", err.Error())
+	}
+
+	fmt.Printf("got current space on display from yabai: %s\n", yabaiOutput)
+
+	yabaiWindows, err := script.Exec(
+		fmt.Sprintf(
+			`yabai -m query --windows --space "%s"`,
+			strings.TrimSpace(yabaiOutput),
+		)).
+		JQ(`sort_by(.frame.x, .frame.y, ."stack-index") | .[]`).
+		Slice()
+
+	if err != nil {
+		fmt.Printf("ran yabai command 2 and ran into this error: %s\n", err.Error())
+	}
+
+	fmt.Printf("got windows from yabai: %s\n", yabaiWindows)
+
+	// convert windows to a slice of strings
+	// TODO: create structure/find some way to iterate (can't use go structs here) (lean on go scripting?)
+	// iterate over each component
+	// generate args
+	// create sketchybar command
+	// call sketchybar
 
 	if senderStr == "front_app_switched" {
 		// front_app item update
 		command := fmt.Sprintf("--set %s label=\"%s\"", nameStr, infoStr)
 		C.sketchybar(C.CString(command))
+		// TODO: free command string after done
 	}
 }
 
