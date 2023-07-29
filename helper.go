@@ -34,11 +34,11 @@ func GoHandler(
 	// Your Go event handling logic here
 	// TODO: somehow make right side be in front even if labels spill over - happens by default
 	// TODO: improve performance.. - only make changes necessary -> can query yabai for focused win.. maybe just open an issue and ask for help
-	// TODO: add icons
+	// TODO: fixup icons
+	// TODO: add icons in windows
 	// TODO: dial in titles - icon  App / Title?
-	// TODO: dial in titles
+	// TODO; dial in title theming
 	// TODO: scale widths with ranges
-	// TODO: try testing go script code
 	nameStr := C.GoString(name)
 	senderStr := C.GoString(sender)
 	infoStr := C.GoString(info)
@@ -52,10 +52,14 @@ func GoHandler(
 	)*/
 
 	currentDisplay := ""
+	spacesJsonStr := ""
 	switch senderStr {
 	case "display_change":
 		//fmt.Printf("display change event activated; got: %s", infoStr)
 		currentDisplay = infoStr
+	case "space_change":
+		//fmt.Printf("space change event activated; got: %s", infoStr)
+		spacesJsonStr = infoStr
 	default:
 	}
 
@@ -65,23 +69,42 @@ func GoHandler(
 	//fmt.Printf("picked up currentDisplay value: %s\n", currentDisplay)
 
 	// Run the 'yabai' command and capture its output
-	yabaiPipeline := script.Exec(
-		fmt.Sprintf(
-			`yabai -m query --spaces --display "%s"`,
-			currentDisplay,
-		)).JQ(`.[] | select(."is-visible" == true) | .index`)
+	activeSpaceOnCurrentDisplay := ""
+	if spacesJsonStr == "" {
+		yabaiPipeline := script.Exec(
+			fmt.Sprintf(
+				`yabai -m query --spaces --display "%s"`,
+				currentDisplay,
+			)).JQ(`.[] | select(."is-visible" == true) | .index`)
 
-	yabaiOutput, err := yabaiPipeline.String()
-	if err != nil {
-		fmt.Printf("ran yabai command 1 and ran into this error: %s\n", err.Error())
+		yabaiOutput, err := yabaiPipeline.String()
+		if err != nil {
+			fmt.Printf("ran yabai command 1 and ran into this error: %s\n", err.Error())
+		}
+		activeSpaceOnCurrentDisplay = yabaiOutput
+	} else {
+		spaceLookupOutput, err := script.Echo(spacesJsonStr).
+			JQ(fmt.Sprintf(`."display-%s"`, currentDisplay)).
+			String()
+		if err != nil {
+			fmt.Printf("error while looking up space for %s in %s", currentDisplay, spacesJsonStr)
+		}
+
+		activeSpaceOnCurrentDisplay = spaceLookupOutput
+		//fmt.Printf("looked up spacejsonstr instead and got %s\n", activeSpaceOnCurrentDisplay)
 	}
 
 	//fmt.Printf("got current space on display from yabai: %s\n", yabaiOutput)
+	if len(activeSpaceOnCurrentDisplay) == 0 {
+		//panic("never got space for display")
+		fmt.Println("never got space for display")
+		// TODO; happens with break; improve by focusing last focused?
+	}
 
 	yabaiWindows, err := script.Exec(
 		fmt.Sprintf(
 			`yabai -m query --windows --space "%s"`,
-			strings.TrimSpace(yabaiOutput),
+			strings.TrimSpace(activeSpaceOnCurrentDisplay),
 		)).
 		JQ(`sort_by(.frame.x, .frame.y, ."stack-index") | .[]`).
 		Slice()
@@ -180,7 +203,7 @@ func GoHandler(
 
 	// set string
 	sketchybarCommand := sketchybarArgsBuilder.String()
-	fmt.Printf("\n\nabout to run this sketchybarCommand: %s\n\n", sketchybarCommand)
+	//fmt.Printf("\n\nabout to run this sketchybarCommand: %s\n\n", sketchybarCommand)
 	C.sketchybar(C.CString(sketchybarCommand))
 	// TODO: free command string after done?
 
