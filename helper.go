@@ -32,6 +32,12 @@ func GoHandler(
 	modifier *C.char,
 ) {
 	// Your Go event handling logic here
+	// TODO: somehow make right side be in front even if labels spill over - happens by default
+	// TODO: improve performance.. - only make changes necessary -> can query yabai for focused win.. maybe just open an issue and ask for help
+	// TODO: add onclick behaviour -> focus matching window
+	// TODO: dial in titles
+	// TODO: add icons
+	// TODO: scale widths
 	nameStr := C.GoString(name)
 	senderStr := C.GoString(sender)
 	infoStr := C.GoString(info)
@@ -90,12 +96,11 @@ func GoHandler(
 	var sketchybarArgsBuilder strings.Builder
 
 	// TODO: lookup how to substitute new method without having to manually move the closeing bracket
-	// TODO: finish this off
-	sketchybarArgsBuilder.WriteString(
+	/*	sketchybarArgsBuilder.WriteString(
 		fmt.Sprintf(
 			`--remove /title\.%s\./ `,
 			currentDisplay,
-		))
+		))*/
 	//sketchybarRemoveArgsBuilder.WriteByte('\n') // Append a single byte (newline character)
 	//C.sketchybar(C.CString(sketchybarRemoveArgsBuilder.String()))
 
@@ -111,7 +116,24 @@ func GoHandler(
 	// Convert the builder to a string
 	//result := builder.String()
 
-	for _, windowStr := range yabaiWindows {
+	numWindows := len(yabaiWindows)
+	//for _, windowStr := range yabaiWindows {
+	numTitleLabels := 8
+	for i := 0; i < numTitleLabels; i++ {
+		if i >= numWindows {
+			// no matching window; set label to empty
+			sketchybarArgsBuilder.WriteString(
+				fmt.Sprintf(
+					//`--set title.%s.%d label=%s label.width=%d background.color=%s `,
+					`--set title.%s.%d label="%s" label.width=0 background.color=0x0 `,
+					currentDisplay,
+					i,
+					"",
+				))
+			continue
+		}
+
+		windowStr := yabaiWindows[i]
 		//fmt.Print("got window from yabai: %s\n", windowStr)
 		windowId, err := script.Echo(windowStr).JQ(`.id`).String()
 		if err != nil {
@@ -143,17 +165,9 @@ func GoHandler(
 
 		sketchybarArgsBuilder.WriteString(
 			fmt.Sprintf(
-				`--add item title.%s.%s left `,
+				`--set title.%s.%d label=%s label.width=%d background.color=%s `,
 				currentDisplay,
-				windowId,
-			))
-		//sketchybarArgsBuilder.WriteByte('\n') // Append a single byte (newline character)
-		sketchybarArgsBuilder.WriteString(
-			fmt.Sprintf(
-				`--set title.%s.%s associated_display=%s label=%s label.width=%d background.color=%s `,
-				currentDisplay,
-				windowId,
-				currentDisplay,
+				i,
 				windowTitle,
 				titleWidth,
 				backgroundColour,
@@ -162,24 +176,18 @@ func GoHandler(
 
 	}
 
-	// convert windows to a slice of strings
-	// TODO: create structure/find some way to iterate (can't use go structs here) (lean on go scripting?)
-	// iterate over each component
-	// generate args
-	// create sketchybar command
-	// call sketchybar
-
 	// set string
 	sketchybarCommand := sketchybarArgsBuilder.String()
 	//fmt.Printf("\n\nabout to run this sketchybarCommand: %s\n\n", sketchybarCommand)
 	C.sketchybar(C.CString(sketchybarCommand))
+	// TODO: free command string after done?
 
-	if senderStr == "front_app_switched" {
+	/*if senderStr == "front_app_switched" {
 		// front_app item update
 		command := fmt.Sprintf("--set %s label=\"%s\"", nameStr, infoStr)
 		C.sketchybar(C.CString(command))
 		// TODO: free command string after done
-	}
+	}*/
 }
 
 func main() {
