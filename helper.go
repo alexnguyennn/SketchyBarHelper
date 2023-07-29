@@ -34,10 +34,11 @@ func GoHandler(
 	// Your Go event handling logic here
 	// TODO: somehow make right side be in front even if labels spill over - happens by default
 	// TODO: improve performance.. - only make changes necessary -> can query yabai for focused win.. maybe just open an issue and ask for help
-	// TODO: add onclick behaviour -> focus matching window
-	// TODO: dial in titles
 	// TODO: add icons
-	// TODO: scale widths
+	// TODO: dial in titles - icon  App / Title?
+	// TODO: dial in titles
+	// TODO: scale widths with ranges
+	// TODO: try testing go script code
 	nameStr := C.GoString(name)
 	senderStr := C.GoString(sender)
 	infoStr := C.GoString(info)
@@ -165,12 +166,13 @@ func GoHandler(
 
 		sketchybarArgsBuilder.WriteString(
 			fmt.Sprintf(
-				`--set title.%s.%d label=%s label.width=%d background.color=%s `,
+				`--set title.%s.%d label=%s label.width=%d background.color=%s click_script="${CONFIG_DIR}/plugins/focus.sh %s" `,
 				currentDisplay,
 				i,
 				windowTitle,
 				titleWidth,
 				backgroundColour,
+				windowId,
 			))
 		//sketchybarArgsBuilder.WriteByte('\n') // Append a single byte (newline character)
 
@@ -178,7 +180,7 @@ func GoHandler(
 
 	// set string
 	sketchybarCommand := sketchybarArgsBuilder.String()
-	//fmt.Printf("\n\nabout to run this sketchybarCommand: %s\n\n", sketchybarCommand)
+	fmt.Printf("\n\nabout to run this sketchybarCommand: %s\n\n", sketchybarCommand)
 	C.sketchybar(C.CString(sketchybarCommand))
 	// TODO: free command string after done?
 
