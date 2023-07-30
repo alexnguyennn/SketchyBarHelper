@@ -32,19 +32,13 @@ func GoHandler(
 	modifier *C.char,
 ) {
 	// Your Go event handling logic here
-	// TODO: somehow make right side be in front even if labels spill over - happens by default
 	// TODO: improve performance.. - only make changes necessary -> can query yabai for focused win.. maybe just open an issue and ask for help
-	// TODO: fixup icons
-	// TODO: add icons in windows
-	// TODO: dial in titles - icon  App / Title?
-	// TODO; dial in title theming
-	// TODO: scale widths with ranges
 	nameStr := C.GoString(name)
 	senderStr := C.GoString(sender)
 	infoStr := C.GoString(info)
-	/*	configDirStr := C.GoString(config_dir)
-		buttonStr := C.GoString(button)
-		modifierStr := C.GoString(modifier)
+	/*configDirStr := C.GoString(config_dir)
+	buttonStr := C.GoString(button)
+	modifierStr := C.GoString(modifier)
 	*/
 	/*	fmt.Printf("*** inside handler, called with values: "+
 		"name=%s, sender=%s, info=%s, configdir=%s, button=%s, modifier=%s ***\n",
@@ -129,8 +123,22 @@ func GoHandler(
 	//C.sketchybar(C.CString(sketchybarRemoveArgsBuilder.String()))
 
 	// TODO: be smarter about this calculation
+	// TODO: account for bar width?
+	// TODO: somehow force not rendering past right container
 	// if i have n <= 4; have them wider; n <=6 shorter; n >6 is icon only?
+	// WIP: scale widths with ranges
+	numWindows := len(yabaiWindows)
 	titleWidth := 200
+	if numWindows < 4 {
+		titleWidth = 150
+	} else if numWindows < 8 {
+		titleWidth = 100
+	} else {
+		titleWidth = 50
+	}
+
+	// TODO: refine font decl
+	const iconFont = "sketchybar-app-font:Regular:16.0"
 
 	// Append strings to the builder
 	// builder.WriteString("Hello, ")
@@ -140,7 +148,6 @@ func GoHandler(
 	// Convert the builder to a string
 	//result := builder.String()
 
-	numWindows := len(yabaiWindows)
 	//for _, windowStr := range yabaiWindows {
 	numTitleLabels := 8
 	for i := 0; i < numTitleLabels; i++ {
@@ -149,7 +156,7 @@ func GoHandler(
 			sketchybarArgsBuilder.WriteString(
 				fmt.Sprintf(
 					//`--set title.%s.%d label=%s label.width=%d background.color=%s `,
-					`--set title.%s.%d label="%s" label.width=0 background.color=0x0 `,
+					`--set title.%s.%d label="%s" label.width=0 background.border_color=0x0 background.drawing=off icon="" `,
 					currentDisplay,
 					i,
 					"",
@@ -174,14 +181,34 @@ func GoHandler(
 			panic(fmt.Errorf("error getting window title for %s: %s\n", windowStr, err))
 		}
 
+		appTitleOutput, err := script.Echo(windowStr).JQ(`.app`).String()
+		if err != nil {
+			panic(fmt.Errorf("error getting app for %s: %s\n", windowStr, err))
+		}
+
+		// TODO: parse config_dir variable properly
+		cleanedUpAppTitle := strings.Trim(strings.TrimSpace(appTitleOutput), `"`)
+		pipe := script.Echo(cleanedUpAppTitle).
+			Exec(`xargs -I{} /Users/alex/.config/sketchybar/plugins/icon_map.sh {}`)
+		//Exec(fmt.Sprintf(`xargs -I{} %s/plugins/icon_map.sh {}`, configDirStr))
+		appIconStr, err := pipe.String()
+		if err != nil {
+			pipe.SetError(nil)
+			panic(fmt.Errorf(
+				"error mapping app to icon for (%s):\n pipe string result - %s\n error - %s\n",
+				cleanedUpAppTitle, appIconStr, err))
+		}
+
 		hasFocus, err := strconv.ParseBool(strings.TrimSpace(hasFocusStr))
 		if err != nil {
 			panic(fmt.Errorf("parsing bool from hasFocusStr - %s: %s\n", hasFocusStr, err))
 		}
 
-		backgroundColour := `0xff06decd`
+		// TODO; make this a config file read from launch dir
+		// TODO: read from colors.sh maybe too
+		borderColor := `0x00000000`
 		if hasFocus {
-			backgroundColour = `0xfff0a104`
+			borderColor = `0xffffffff`
 		}
 
 		windowId = strings.TrimSpace(windowId)
@@ -189,16 +216,18 @@ func GoHandler(
 
 		sketchybarArgsBuilder.WriteString(
 			fmt.Sprintf(
-				`--set title.%s.%d label=%s label.width=%d background.color=%s click_script="${CONFIG_DIR}/plugins/focus.sh %s" `,
+				`--set title.%s.%d label=%s label.width=%d background.drawing=on background.border_color=%s click_script="${CONFIG_DIR}/plugins/focus.sh %s" icon=%s icon.font=%s `,
+				//`--set title.%s.%d label=%s label.width=%d background.color=%s click_script="${CONFIG_DIR}/plugins/focus.sh %s" icon=%s icon.font=%s `,
 				currentDisplay,
 				i,
 				windowTitle,
+				//fmt.Sprintf(`"%s| %s"`, strings.Trim(appIconStr, `"`), strings.Trim(windowTitle, `"`)),
 				titleWidth,
-				backgroundColour,
+				borderColor,
 				windowId,
+				strings.TrimSpace(appIconStr),
+				iconFont,
 			))
-		//sketchybarArgsBuilder.WriteByte('\n') // Append a single byte (newline character)
-
 	}
 
 	// set string
@@ -221,7 +250,7 @@ func main() {
 	}
 
 	bootstrapName := os.Args[1] // first arg is 1st index, 0th is binary name
-	fmt.Printf("Starting an event service with bootstrap name: %s",
+	fmt.Printf("Starting an event service with bootstrap name: %s\n",
 		bootstrapName)
 	C.MainCFunction(C.CString(bootstrapName))
 }
