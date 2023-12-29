@@ -69,7 +69,8 @@ func GoHandler(
 			fmt.Sprintf(
 				`yabai -m query --spaces --display "%s"`,
 				currentDisplay,
-			)).JQ(`.[] | select(."is-visible" == true) | .index`)
+			),
+		).JQ(`.[] | select(."is-visible" == true) | .index`)
 
 		yabaiOutput, err := yabaiPipeline.String()
 		if err != nil {
@@ -99,7 +100,8 @@ func GoHandler(
 		fmt.Sprintf(
 			`yabai -m query --windows --space "%s"`,
 			strings.TrimSpace(activeSpaceOnCurrentDisplay),
-		)).
+		),
+	).
 		JQ(`sort_by(.frame.x, .frame.y, ."stack-index") | .[]`).
 		Slice()
 
@@ -127,15 +129,89 @@ func GoHandler(
 	// TODO: somehow force not rendering past right container
 	// if i have n <= 4; have them wider; n <=6 shorter; n >6 is icon only?
 	// WIP: scale widths with ranges
-	numWindows := len(yabaiWindows)
-	titleWidth := 200
-	if numWindows < 4 {
-		titleWidth = 150
-	} else if numWindows < 8 {
-		titleWidth = 100
-	} else {
-		titleWidth = 50
+	// TODO: get bounding rects of spaces_bracket and right_section
+	// TODO; get total x coord with yabai -m query --displays
+	displayInfo := script.Exec(
+		fmt.Sprintf(
+			"yabai -m query --displays --display %s",
+			currentDisplay,
+		),
+	)
+	//).JQ(".frame.x").String()
+
+	displayType, err := displayInfo.JQ(`if .frame.w > .frame.h then "landscape" else "portrait" end`).String()
+	if err != nil {
+		fmt.Printf("%s", err.Error())
 	}
+	displayType = strings.TrimSpace(displayType)
+
+	/*	displayXPosition, err := displayInfo.JQ(".frame.w").String()
+		if err != nil {
+			fmt.Printf("%s", err.Error())
+		}
+	*/
+	/*	rightXPosition, err := script.Exec("sketchybar --query right_section").
+		JQ(fmt.Sprintf(`.bounding_rects."display-%s".origin[0]`, currentDisplay)).String()*/
+	/*	rightWidth, err := script.Exec("sketchybar --query right_section").
+			JQ(fmt.Sprintf(`.bounding_rects."display-%s".size[0]`, currentDisplay)).String()
+		if err != nil {
+			fmt.Printf("%s", err.Error())
+		}
+		spacesWidth, err := script.Exec("sketchybar --query spaces_bracket").
+			JQ(fmt.Sprintf(`.bounding_rects."display-%s".size[0]`, currentDisplay)).String()
+		if err != nil {
+			fmt.Printf("%s", err.Error())
+		}*/
+	/*displayPos, err := strconv.Atoi(strings.TrimSpace(displayXPosition))
+	if err != nil {
+		fmt.Printf("%s", err.Error())
+	}*/
+	/*	displayWidth, err := strconv.Atoi(strings.TrimSpace(displayXPosition))
+		if err != nil {
+			fmt.Printf("%s", err.Error())
+		}
+		rightWI, err := strconv.Atoi(strings.TrimSpace(rightWidth))
+		if err != nil {
+			fmt.Printf("%s", err.Error())
+		}
+
+		spacesWI, err := strconv.Atoi(strings.TrimSpace(spacesWidth))
+		if err != nil {
+			fmt.Printf("%s", err.Error())
+		}
+	*/
+	//usableWidth := rightWI - displayWidth - (10 * spacesWI)
+	//usableWidth := displayWidth - (rightWI + spacesWI)
+	numWindows := len(yabaiWindows)
+	var titleWidth int
+	if numWindows < 3 || numWindows == 0 {
+		titleWidth = 200
+	} else {
+		if strings.Contains(displayType, "portrait") {
+			titleWidth = 60
+		} else if numWindows > 0 {
+			//titleWidth = usableWidth / numWindows
+			titleWidth = 100
+		}
+	}
+	/*if strings.Contains(displayType, "portrait") {
+		titleWidth = 50
+	} else {
+		if numWindows < 3 || numWindows == 0 {
+			titleWidth = 200
+		} else if numWindows > 0 {
+			titleWidth = usableWidth / numWindows
+		}
+	}
+	*/
+	//titleWidth := 200
+	// if numWindows < 4 {
+	// 	titleWidth = 150
+	// } else if numWindows < 8 {
+	// 	titleWidth = 100
+	// } else {
+	// 	titleWidth = 50
+	// }
 
 	// TODO: refine font decl
 	const iconFont = "sketchybar-app-font:Regular:16.0"
@@ -160,7 +236,8 @@ func GoHandler(
 					currentDisplay,
 					i,
 					"",
-				))
+				),
+			)
 			continue
 		}
 
@@ -194,9 +271,12 @@ func GoHandler(
 		appIconStr, err := pipe.String()
 		if err != nil {
 			pipe.SetError(nil)
-			panic(fmt.Errorf(
-				"error mapping app to icon for (%s):\n pipe string result - %s\n error - %s\n",
-				cleanedUpAppTitle, appIconStr, err))
+			panic(
+				fmt.Errorf(
+					"error mapping app to icon for (%s):\n pipe string result - %s\n error - %s\n",
+					cleanedUpAppTitle, appIconStr, err,
+				),
+			)
 		}
 
 		hasFocus, err := strconv.ParseBool(strings.TrimSpace(hasFocusStr))
@@ -216,7 +296,7 @@ func GoHandler(
 
 		sketchybarArgsBuilder.WriteString(
 			fmt.Sprintf(
-				`--set title.%s.%d label=%s label.width=%d background.drawing=on background.border_color=%s click_script="${CONFIG_DIR}/plugins/focus.sh %s" icon=%s icon.font=%s `,
+				`--set title.%s.%d label=%s label.width="%d" background.drawing="on" background.border_color="%s" click_script="${CONFIG_DIR}/plugins/focus.sh %s" icon="%s" icon.font="%s" `,
 				//`--set title.%s.%d label=%s label.width=%d background.color=%s click_script="${CONFIG_DIR}/plugins/focus.sh %s" icon=%s icon.font=%s `,
 				currentDisplay,
 				i,
@@ -227,7 +307,8 @@ func GoHandler(
 				windowId,
 				strings.TrimSpace(appIconStr),
 				iconFont,
-			))
+			),
+		)
 	}
 
 	// set string
@@ -245,12 +326,27 @@ func GoHandler(
 }
 
 func main() {
+	/*	rand.Seed(time.Now().UnixNano())
+		randomNumber := rand.Intn(100)
+		f, err := os.Create(fmt.Sprintf("/Users/alex/cpu-%d.pprof", randomNumber))
+		if err != nil {
+			panic(err)
+		}
+		defer f.Close()
+
+		if err := pprof.StartCPUProfile(f); err != nil {
+			panic(err)
+		}
+		defer pprof.StopCPUProfile()
+	*/
 	if len(os.Args) < 2 {
 		fmt.Printf("Usage: %s <bootstrap name> ", os.Args[0])
 	}
 
 	bootstrapName := os.Args[1] // first arg is 1st index, 0th is binary name
-	fmt.Printf("Starting an event service with bootstrap name: %s\n",
-		bootstrapName)
+	fmt.Printf(
+		"Starting an event service with bootstrap name: %s\n",
+		bootstrapName,
+	)
 	C.MainCFunction(C.CString(bootstrapName))
 }
