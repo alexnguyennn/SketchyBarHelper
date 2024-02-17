@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/bitfield/script"
 	"os"
-	"strconv"
 	"strings"
 )
 
@@ -46,14 +45,13 @@ func GoHandler(
 	)*/
 
 	currentDisplay := ""
-	spacesJsonStr := ""
+	focusedWorkspace := ""
 	switch senderStr {
 	case "display_change":
 		//fmt.Printf("display change event activated; got: %s", infoStr)
 		currentDisplay = infoStr
-	case "space_change":
-		//fmt.Printf("space change event activated; got: %s", infoStr)
-		spacesJsonStr = infoStr
+	case "aerospace_workspace_change":
+		focusedWorkspace = os.Getenv("FOCUSED_WORKSPACE")
 	default:
 	}
 
@@ -64,29 +62,19 @@ func GoHandler(
 
 	// Run the 'yabai' command and capture its output
 	activeSpaceOnCurrentDisplay := ""
-	if spacesJsonStr == "" {
+	if focusedWorkspace == "" {
 		yabaiPipeline := script.Exec(
 			fmt.Sprintf(
-				`yabai -m query --spaces --display "%s"`,
+				`aerospace list-workspaces --monitor %s --visible`,
 				currentDisplay,
 			),
-		).JQ(`.[] | select(."is-visible" == true) | .index`)
+		)
 
 		yabaiOutput, err := yabaiPipeline.String()
 		if err != nil {
 			fmt.Printf("ran yabai command 1 and ran into this error: %s\n", err.Error())
 		}
-		activeSpaceOnCurrentDisplay = yabaiOutput
-	} else {
-		spaceLookupOutput, err := script.Echo(spacesJsonStr).
-			JQ(fmt.Sprintf(`."display-%s"`, currentDisplay)).
-			String()
-		if err != nil {
-			fmt.Printf("error while looking up space for %s in %s", currentDisplay, spacesJsonStr)
-		}
-
-		activeSpaceOnCurrentDisplay = spaceLookupOutput
-		//fmt.Printf("looked up spacejsonstr instead and got %s\n", activeSpaceOnCurrentDisplay)
+		focusedWorkspace = strings.TrimSpace(yabaiOutput)
 	}
 
 	//fmt.Printf("got current space on display from yabai: %s\n", yabaiOutput)
@@ -96,18 +84,18 @@ func GoHandler(
 		// TODO; happens with break; improve by focusing last focused?
 	}
 
-	yabaiWindows, err := script.Exec(
+	windowTitles, err := script.Exec(
 		fmt.Sprintf(
-			`yabai -m query --windows --space "%s"`,
-			strings.TrimSpace(activeSpaceOnCurrentDisplay),
+			`aerospace list-windows --workspace "%s" | cut -d'|' -f3`,
+			focusedWorkspace,
 		),
-	).
-		JQ(`sort_by(.frame.x, .frame.y, ."stack-index") | .[]`).
-		Slice()
+	).String()
 
 	if err != nil {
 		fmt.Printf("ran yabai command 2 and ran into this error: %s\n", err.Error())
 	}
+
+	windows := strings.Split(windowTitles, "\n")
 
 	//fmt.Print("got windows from yabai: %s\n", yabaiWindows)
 
@@ -131,20 +119,20 @@ func GoHandler(
 	// WIP: scale widths with ranges
 	// TODO: get bounding rects of spaces_bracket and right_section
 	// TODO; get total x coord with yabai -m query --displays
-	displayInfo := script.Exec(
-		fmt.Sprintf(
-			"yabai -m query --displays --display %s",
-			currentDisplay,
-		),
-	)
-	//).JQ(".frame.x").String()
+	/*	displayInfo := script.Exec(
+			fmt.Sprintf(
+				"yabai -m query --displays --display %s",
+				currentDisplay,
+			),
+		)
+		//).JQ(".frame.x").String()
 
-	displayType, err := displayInfo.JQ(`if .frame.w > .frame.h then "landscape" else "portrait" end`).String()
-	if err != nil {
-		fmt.Printf("%s", err.Error())
-	}
-	displayType = strings.TrimSpace(displayType)
-
+		displayType, err := displayInfo.JQ(`if .frame.w > .frame.h then "landscape" else "portrait" end`).String()
+		if err != nil {
+			fmt.Printf("%s", err.Error())
+		}
+		displayType = strings.TrimSpace(displayType)
+	*/
 	/*	displayXPosition, err := displayInfo.JQ(".frame.w").String()
 		if err != nil {
 			fmt.Printf("%s", err.Error())
@@ -182,17 +170,18 @@ func GoHandler(
 	*/
 	//usableWidth := rightWI - displayWidth - (10 * spacesWI)
 	//usableWidth := displayWidth - (rightWI + spacesWI)
-	numWindows := len(yabaiWindows)
+
+	numWindows := len(windows)
 	var titleWidth int
 	if numWindows < 3 || numWindows == 0 {
 		titleWidth = 200
 	} else {
-		if strings.Contains(displayType, "portrait") {
+		/*if strings.Contains(displayType, "portrait") {
 			titleWidth = 60
-		} else if numWindows > 0 {
-			//titleWidth = usableWidth / numWindows
-			titleWidth = 100
-		}
+		} else if numWindows > 0 {*/
+		//titleWidth = usableWidth / numWindows
+		titleWidth = 100
+		//}
 	}
 	/*if strings.Contains(displayType, "portrait") {
 		titleWidth = 50
@@ -241,62 +230,21 @@ func GoHandler(
 			continue
 		}
 
-		windowStr := yabaiWindows[i]
-		//fmt.Print("got window from yabai: %s\n", windowStr)
-		windowId, err := script.Echo(windowStr).JQ(`.id`).String()
-		if err != nil {
-			panic(fmt.Errorf("error getting window id for %s: %s\n", windowStr, err))
-		}
-
-		hasFocusStr, err := script.Echo(windowStr).JQ(`."has-focus"`).String()
-		if err != nil {
-			panic(fmt.Errorf("error getting has focus for %s: %s\n", windowStr, err))
-		}
-
-		windowTitle, err := script.Echo(windowStr).JQ(`.title`).String()
-		if err != nil {
-			panic(fmt.Errorf("error getting window title for %s: %s\n", windowStr, err))
-		}
-
-		appTitleOutput, err := script.Echo(windowStr).JQ(`.app`).String()
-		if err != nil {
-			panic(fmt.Errorf("error getting app for %s: %s\n", windowStr, err))
-		}
-
-		// TODO: parse config_dir variable properly
-		cleanedUpAppTitle := strings.Trim(strings.TrimSpace(appTitleOutput), `"`)
-		pipe := script.Echo(cleanedUpAppTitle).
-			Exec(`xargs -I{} /Users/alex/.config/sketchybar/plugins/icon_map.sh {}`)
-		//Exec(fmt.Sprintf(`xargs -I{} %s/plugins/icon_map.sh {}`, configDirStr))
-		appIconStr, err := pipe.String()
-		if err != nil {
-			pipe.SetError(nil)
-			panic(
-				fmt.Errorf(
-					"error mapping app to icon for (%s):\n pipe string result - %s\n error - %s\n",
-					cleanedUpAppTitle, appIconStr, err,
-				),
-			)
-		}
-
-		hasFocus, err := strconv.ParseBool(strings.TrimSpace(hasFocusStr))
-		if err != nil {
-			panic(fmt.Errorf("parsing bool from hasFocusStr - %s: %s\n", hasFocusStr, err))
-		}
+		// TODO: hasfocused by separate call for focused window, match
 
 		// TODO; make this a config file read from launch dir
 		// TODO: read from colors.sh maybe too
 		borderColor := `0x00000000`
+		const hasFocus = false
 		if hasFocus {
 			borderColor = `0xffffffff`
 		}
 
-		windowId = strings.TrimSpace(windowId)
-		windowTitle = strings.TrimSpace(windowTitle)
+		windowTitle := windowTitles[i]
 
 		sketchybarArgsBuilder.WriteString(
 			fmt.Sprintf(
-				`--set title.%s.%d label=%s label.width="%d" background.drawing="on" background.border_color="%s" click_script="${CONFIG_DIR}/plugins/focus.sh %s" icon="%s" icon.font="%s" `,
+				`--set title.%s.%d label=%s label.width="%d" background.drawing="on" background.border_color="%s"`,
 				//`--set title.%s.%d label=%s label.width=%d background.color=%s click_script="${CONFIG_DIR}/plugins/focus.sh %s" icon=%s icon.font=%s `,
 				currentDisplay,
 				i,
@@ -304,9 +252,6 @@ func GoHandler(
 				//fmt.Sprintf(`"%s| %s"`, strings.Trim(appIconStr, `"`), strings.Trim(windowTitle, `"`)),
 				titleWidth,
 				borderColor,
-				windowId,
-				strings.TrimSpace(appIconStr),
-				iconFont,
 			),
 		)
 	}
@@ -326,19 +271,6 @@ func GoHandler(
 }
 
 func main() {
-	/*	rand.Seed(time.Now().UnixNano())
-		randomNumber := rand.Intn(100)
-		f, err := os.Create(fmt.Sprintf("/Users/alex/cpu-%d.pprof", randomNumber))
-		if err != nil {
-			panic(err)
-		}
-		defer f.Close()
-
-		if err := pprof.StartCPUProfile(f); err != nil {
-			panic(err)
-		}
-		defer pprof.StopCPUProfile()
-	*/
 	if len(os.Args) < 2 {
 		fmt.Printf("Usage: %s <bootstrap name> ", os.Args[0])
 	}
