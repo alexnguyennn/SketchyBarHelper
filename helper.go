@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/bitfield/script"
+	"github.com/samber/lo"
 	"os"
 	"strings"
 )
@@ -21,6 +22,12 @@ func AGoFunction() {
 	fmt.Println("AGoFunction()")
 }
 
+type window struct {
+	id    string
+	app   string
+	title string
+}
+
 //export GoHandler
 func GoHandler(
 	name *C.char,
@@ -35,15 +42,16 @@ func GoHandler(
 	nameStr := C.GoString(name)
 	senderStr := C.GoString(sender)
 	infoStr := C.GoString(info)
-	/*configDirStr := C.GoString(config_dir)
-	buttonStr := C.GoString(button)
-	modifierStr := C.GoString(modifier)
+	/*	configDirStr := C.GoString(config_dir)
+		buttonStr := C.GoString(button)
+		modifierStr := C.GoString(modifier)
 	*/
-	/*	fmt.Printf("*** inside handler, called with values: "+
-		"name=%s, sender=%s, info=%s, configdir=%s, button=%s, modifier=%s ***\n",
-		nameStr, senderStr, infoStr, configDirStr, buttonStr, modifierStr,
-	)*/
-
+	/*	fmt.Printf(
+			"*** inside handler, called with values: "+
+				"name=%s, sender=%s, info=%s, configdir=%s, button=%s, modifier=%s ***\n",
+			nameStr, senderStr, infoStr, configDirStr, buttonStr, modifierStr,
+		)
+	*/
 	currentDisplay := ""
 	focusedWorkspace := ""
 	switch senderStr {
@@ -61,7 +69,6 @@ func GoHandler(
 	//fmt.Printf("picked up currentDisplay value: %s\n", currentDisplay)
 
 	// Run the 'yabai' command and capture its output
-	activeSpaceOnCurrentDisplay := ""
 	if focusedWorkspace == "" {
 		yabaiPipeline := script.Exec(
 			fmt.Sprintf(
@@ -77,25 +84,37 @@ func GoHandler(
 		focusedWorkspace = strings.TrimSpace(yabaiOutput)
 	}
 
-	//fmt.Printf("got current space on display from yabai: %s\n", yabaiOutput)
-	if len(activeSpaceOnCurrentDisplay) == 0 {
+	//fmt.Printf("got workspace: %s\n", focusedWorkspace)
+	if len(focusedWorkspace) == 0 {
 		//panic("never got space for display")
 		fmt.Println("never got space for display")
 		// TODO; happens with break; improve by focusing last focused?
 	}
 
-	windowTitles, err := script.Exec(
-		fmt.Sprintf(
-			`aerospace list-windows --workspace "%s" | cut -d'|' -f3`,
-			focusedWorkspace,
-		),
-	).String()
-
+	windowListCmd := fmt.Sprintf(
+		`aerospace list-windows --workspace "%s"`,
+		focusedWorkspace,
+	)
+	windowStrs, err := script.Exec(
+		windowListCmd,
+	).Slice()
 	if err != nil {
-		fmt.Printf("ran yabai command 2 and ran into this error: %s\n", err.Error())
+		fmt.Printf("ran %s: %s\n", windowListCmd, err.Error())
+		return
 	}
 
-	windows := strings.Split(windowTitles, "\n")
+	windows := lo.Map(
+		windowStrs, func(winStr string, i int) window {
+			parts := strings.SplitN(winStr, "|", 3)
+			return window{
+				id:    strings.TrimSpace(parts[0]),
+				app:   strings.TrimSpace(parts[1]),
+				title: strings.TrimSpace(parts[2]),
+			}
+		},
+	)
+
+	//windows := strings.Split(windowTitles, "\n")
 
 	//fmt.Print("got windows from yabai: %s\n", yabaiWindows)
 
@@ -171,6 +190,10 @@ func GoHandler(
 	//usableWidth := rightWI - displayWidth - (10 * spacesWI)
 	//usableWidth := displayWidth - (rightWI + spacesWI)
 
+	visibleWindowLimit := lo.Ternary(
+		currentDisplay == "4", 4, 6,
+	)
+
 	numWindows := len(windows)
 	var titleWidth int
 	if numWindows < 3 || numWindows == 0 {
@@ -213,10 +236,20 @@ func GoHandler(
 	// Convert the builder to a string
 	//result := builder.String()
 
-	//for _, windowStr := range yabaiWindows {
+	focusedID, err := script.
+		Exec(`aerospace list-windows --focused`).
+		Exec(`cut -d'|' -f1`).
+		String()
+	if err != nil {
+		fmt.Printf("ran %s: %s\n", `aerospace list-windows --focused`, err.Error())
+		return
+	}
+
+	focusedID = strings.TrimSpace(focusedID)
+
 	numTitleLabels := 8
 	for i := 0; i < numTitleLabels; i++ {
-		if i >= numWindows {
+		if i >= numWindows || i >= visibleWindowLimit {
 			// no matching window; set label to empty
 			sketchybarArgsBuilder.WriteString(
 				fmt.Sprintf(
@@ -235,16 +268,19 @@ func GoHandler(
 		// TODO; make this a config file read from launch dir
 		// TODO: read from colors.sh maybe too
 		borderColor := `0x00000000`
-		const hasFocus = false
+		hasFocus := windows[i].id == focusedID
 		if hasFocus {
+			//fmt.Printf("got focus match: %s | %s\n", focusedID, windows[i].title)
 			borderColor = `0xffffffff`
+		} else {
+			//fmt.Printf("failed focus match: %s vs %s | win: %s\n", focusedID, windows[i].id, windows[i].title)
 		}
 
-		windowTitle := windowTitles[i]
+		windowTitle := windows[i].title
 
 		sketchybarArgsBuilder.WriteString(
 			fmt.Sprintf(
-				`--set title.%s.%d label=%s label.width="%d" background.drawing="on" background.border_color="%s"`,
+				`--set title.%s.%d label="%s" label.width="%d" background.drawing="on" background.border_color="%s" `, // trailing space per command is important
 				//`--set title.%s.%d label=%s label.width=%d background.color=%s click_script="${CONFIG_DIR}/plugins/focus.sh %s" icon=%s icon.font=%s `,
 				currentDisplay,
 				i,
